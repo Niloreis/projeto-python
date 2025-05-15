@@ -6,29 +6,22 @@ import plotly.express as px
 # URL da API SIDRA
 url = "https://apisidra.ibge.gov.br/values/t/10056/n3/all/v/all/p/all/c58/allxt/c2/6794/c86/95251/d/v3795%202"
 
-# Função para carregar e transformar os dados
 def carregar_dados():
     response = requests.get(url)
     data = response.json()
-    
-    # Cabeçalhos das colunas
     colunas = list(data[0].values())
     dados = [list(d.values()) for d in data[1:]]
-
     df = pd.DataFrame(dados, columns=colunas)
     df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce")
     return df
 
-# Carrega os dados
 df = carregar_dados()
 
-# Inicializa o app Dash
 app = Dash(__name__)
-app.title = "Dashboard SIDRA IBGE"
+app.title = "Dashboard sobre a taxa de alfabetização dos estados brasileiros"
 
-# Layout do app
 app.layout = html.Div([
-    html.H1("Dashboard SIDRA - IBGE", style={"textAlign": "center"}),
+    html.H1("Dashboard sobre a taxa de alfabetização dos estados brasileiros", style={"textAlign": "center"}),
 
     html.Label("Selecione o Ano:"),
     dcc.Dropdown(
@@ -37,42 +30,48 @@ app.layout = html.Div([
         value=sorted(df["Ano"].unique())[0]
     ),
 
-    dcc.Graph(id='grafico'),
+    dcc.Graph(id='grafico')
 ])
 
-# Callback para atualizar gráfico
 @app.callback(
     Output("grafico", "figure"),
     Input("ano-dropdown", "value")
 )
 def atualizar_dashboard(ano):
-    df_filtrado = df[df["Ano"] == ano]
+    df_ano = df[df["Ano"] == ano]
 
+    # Total por UF
+    totais = (
+        df_ano
+        .groupby("Unidade da Federação")["Valor"]
+        .sum()
+        .rename("Total_UF")
+        .reset_index()
+    )
+
+    # Merge e cálculo da porcentagem
+    df_pct = df_ano.merge(totais, on="Unidade da Federação")
+    df_pct["Pct"] = (df_pct["Valor"] / df_pct["Total_UF"])
+
+    # Gráfico de barras (%), formatado como porcentagem
     fig = px.bar(
-        df_filtrado,
+        df_pct,
         x="Unidade da Federação",
-        y="Valor",
-        color="Sexo",
+        y="Pct",
         barmode="group",
-        title=f"Indicador por UF - Ano {ano}",
-        color_discrete_sequence=["#1f77b4", "#ff7f0e"]  # Cores fortes e distintas
+        title=f"% de cada condição por UF – Ano {ano}",
+        labels={"Pct": "% do total por UF"}
     )
 
-    fig.update_traces(
-        marker_line_color='black', 
-        marker_line_width=1
-    )
-
+    # Formatação como porcentagem no eixo y e no hover
     fig.update_layout(
-        xaxis_title="Estado (UF)",
-        yaxis_title="Valor",
-        font=dict(size=14),
-        uniformtext_minsize=10,
-        uniformtext_mode='hide'
+        yaxis_tickformat=".2%",
+    )
+    fig.update_traces(
+        hovertemplate='%{x}<br>%{y:.2%}<extra></extra>'
     )
 
     return fig
 
-# Executa o app
 if __name__ == '__main__':
     app.run(debug=True)
