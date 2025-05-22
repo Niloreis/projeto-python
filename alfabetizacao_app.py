@@ -17,8 +17,8 @@ COLORS = {
     'hover': '#D3D3D3'
 }
 
-# URL da API SIDRA
-url = "https://apisidra.ibge.gov.br/values/t/10056/n3/all/v/all/p/all/c58/allxt/c2/6794/c86/95251/d/v3795%202"
+# URL da API SIDRA para taxa de alfabetização (tabela 10091)
+url = "https://apisidra.ibge.gov.br/values/t/10091/n3/all/v/2513/p/all"
 
 def carregar_dados():
     response = requests.get(url)
@@ -43,6 +43,9 @@ def carregar_dados():
     }
     
     df['Região'] = df['Unidade da Federação'].map(regioes)
+    
+    # Converter valor para decimal (já que vem como percentual)
+    df['Taxa'] = df['Valor'] / 100
     
     return df
 
@@ -156,42 +159,18 @@ def processar_dados(ano):
     
     df_ano = df[df["Ano"] == ano].copy()
     
-    # Calcular totais por UF
-    totais_uf = (
-        df_ano
-        .groupby("Unidade da Federação")["Valor"]
-        .sum()
-        .rename("Total_UF")
-        .reset_index()
-    )
-    
-    # Calcular totais por região
-    totais_regiao = (
-        df_ano
-        .groupby("Região")["Valor"]
-        .sum()
-        .rename("Total_Regiao")
-        .reset_index()
-    )
-    
-    # Merge e cálculo das porcentagens
-    df_pct_uf = df_ano.merge(totais_uf, on="Unidade da Federação")
-    df_pct_uf["Pct"] = (df_pct_uf["Valor"] / df_pct_uf["Total_UF"])
-    
-    df_pct_regiao = df_ano.merge(totais_regiao, on="Região")
-    df_pct_regiao["Pct"] = (df_pct_regiao["Valor"] / df_pct_regiao["Total_Regiao"])
-    
-    # Calcular média nacional
-    total_nacional = df_ano["Valor"].sum()
-    df_ano["Pct_Nacional"] = df_ano["Valor"] / total_nacional
+    # Calcular médias por região
+    df_regiao = df_ano.groupby("Região")["Taxa"].mean().reset_index()
     
     # Preparar dados para retorno
     return {
-        'df_uf': df_pct_uf.to_dict('records'),
-        'df_regiao': df_pct_regiao.to_dict('records'),
-        'media_nacional': (df_ano["Valor"].sum() / len(df_ano["Unidade da Federação"].unique())),
-        'max_uf': df_pct_uf.groupby("Unidade da Federação")["Pct"].mean().max(),
-        'min_uf': df_pct_uf.groupby("Unidade da Federação")["Pct"].mean().min(),
+        'df_uf': df_ano.to_dict('records'),
+        'df_regiao': df_regiao.to_dict('records'),
+        'media_nacional': df_ano["Taxa"].mean(),
+        'max_uf': df_ano["Taxa"].max(),
+        'min_uf': df_ano["Taxa"].min(),
+        'max_uf_nome': df_ano.loc[df_ano["Taxa"].idxmax(), "Unidade da Federação"],
+        'min_uf_nome': df_ano.loc[df_ano["Taxa"].idxmin(), "Unidade da Federação"],
         'ano': ano
     }
 
@@ -208,17 +187,19 @@ def atualizar_indicadores(dados):
     return [
         html.Div([
             html.H4("Média Nacional", style={"textAlign": "center", "margin": "0"}),
-            html.H2(f"{dados['media_nacional']:,.2f}", style={"textAlign": "center", "color": COLORS['primary'], "margin": "10px 0"})
+            html.H2(f"{dados['media_nacional']:.2%}", style={"textAlign": "center", "color": COLORS['primary'], "margin": "10px 0"})
         ], className="four columns", style={"backgroundColor": "white", "padding": "15px", "borderRadius": "5px", "boxShadow": "0px 0px 5px rgba(0,0,0,0.1)"}),
         
         html.Div([
             html.H4("Maior Taxa", style={"textAlign": "center", "margin": "0"}),
-            html.H2(f"{dados['max_uf']:.2%}", style={"textAlign": "center", "color": COLORS['accent'], "margin": "10px 0"})
+            html.H2(f"{dados['max_uf']:.2%}", style={"textAlign": "center", "color": COLORS['accent'], "margin": "10px 0"}),
+            html.P(f"{dados['max_uf_nome']}", style={"textAlign": "center", "fontSize": "14px"})
         ], className="four columns", style={"backgroundColor": "white", "padding": "15px", "borderRadius": "5px", "boxShadow": "0px 0px 5px rgba(0,0,0,0.1)"}),
         
         html.Div([
             html.H4("Menor Taxa", style={"textAlign": "center", "margin": "0"}),
-            html.H2(f"{dados['min_uf']:.2%}", style={"textAlign": "center", "color": COLORS['secondary'], "margin": "10px 0"})
+            html.H2(f"{dados['min_uf']:.2%}", style={"textAlign": "center", "color": COLORS['secondary'], "margin": "10px 0"}),
+            html.P(f"{dados['min_uf_nome']}", style={"textAlign": "center", "fontSize": "14px"})
         ], className="four columns", style={"backgroundColor": "white", "padding": "15px", "borderRadius": "5px", "boxShadow": "0px 0px 5px rgba(0,0,0,0.1)"})
     ]
 
@@ -249,22 +230,19 @@ def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
         x_col = "Região"
         title_prefix = "Regiões"
     
-    # Calcular médias para simplificar visualização
-    df_medias = df_plot.groupby([x_col])["Pct"].mean().reset_index()
-    
     # Escolher tipo de gráfico
     if tipo_grafico == 'barra':
         # Gráfico de barras ordenado
-        df_medias = df_medias.sort_values("Pct", ascending=False)
+        df_plot = df_plot.sort_values("Taxa", ascending=False)
         
         fig = px.bar(
-            df_medias,
+            df_plot,
             x=x_col,
-            y="Pct",
-            color="Pct",
+            y="Taxa",
+            color="Taxa",
             color_continuous_scale="Viridis",
             title=f"Taxa de Alfabetização por {title_prefix} - {dados['ano']}",
-            labels={"Pct": "Taxa de Alfabetização", x_col: title_prefix}
+            labels={"Taxa": "Taxa de Alfabetização", x_col: title_prefix}
         )
         
         # Melhorar aparência
@@ -291,20 +269,20 @@ def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
             # Reorganizar para ter UFs nas linhas e variáveis nas colunas
             pivot_df = df_plot.pivot_table(
                 index=x_col, 
-                values="Pct", 
+                values="Taxa", 
                 aggfunc='mean'
             ).reset_index()
             
             # Ordenar por valor
-            pivot_df = pivot_df.sort_values("Pct", ascending=False)
+            pivot_df = pivot_df.sort_values("Taxa", ascending=False)
             
             # Criar heatmap
             fig = go.Figure(data=go.Heatmap(
-                z=pivot_df["Pct"].values.reshape(-1, 1),
+                z=pivot_df["Taxa"].values.reshape(-1, 1),
                 x=["Taxa de Alfabetização"],
                 y=pivot_df[x_col],
                 colorscale="Viridis",
-                text=[[f"{val:.2%}"] for val in pivot_df["Pct"]],
+                text=[[f"{val:.2%}"] for val in pivot_df["Taxa"]],
                 texttemplate="%{text}",
                 showscale=True,
                 colorbar=dict(title="Taxa")
@@ -314,20 +292,20 @@ def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
             # Para regiões, criar um heatmap mais simples
             pivot_df = df_plot.pivot_table(
                 index=x_col, 
-                values="Pct", 
+                values="Taxa", 
                 aggfunc='mean'
             ).reset_index()
             
             # Ordenar por valor
-            pivot_df = pivot_df.sort_values("Pct", ascending=False)
+            pivot_df = pivot_df.sort_values("Taxa", ascending=False)
             
             # Criar heatmap
             fig = go.Figure(data=go.Heatmap(
-                z=pivot_df["Pct"].values.reshape(-1, 1),
+                z=pivot_df["Taxa"].values.reshape(-1, 1),
                 x=["Taxa de Alfabetização"],
                 y=pivot_df[x_col],
                 colorscale="Viridis",
-                text=[[f"{val:.2%}"] for val in pivot_df["Pct"]],
+                text=[[f"{val:.2%}"] for val in pivot_df["Taxa"]],
                 texttemplate="%{text}",
                 showscale=True,
                 colorbar=dict(title="Taxa")
@@ -361,7 +339,7 @@ def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
         
         # Adicionar coordenadas ao DataFrame
         if agrupamento == 'estado':
-            df_map = df_medias.copy()
+            df_map = df_plot.copy()
             df_map['lat'] = df_map[x_col].map(lambda x: coordenadas.get(x, [0, 0])[0])
             df_map['lon'] = df_map[x_col].map(lambda x: coordenadas.get(x, [0, 0])[1])
             
@@ -370,15 +348,15 @@ def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
                 df_map,
                 lat='lat',
                 lon='lon',
-                size='Pct',
-                color='Pct',
+                size='Taxa',
+                color='Taxa',
                 hover_name=x_col,
                 size_max=30,
                 color_continuous_scale="Viridis",
                 title=f"Distribuição Geográfica da Taxa de Alfabetização - {dados['ano']}",
                 projection="mercator",
                 scope="south america",
-                labels={"Pct": "Taxa de Alfabetização"}
+                labels={"Taxa": "Taxa de Alfabetização"}
             )
             
             # Adicionar texto aos pontos
@@ -390,12 +368,12 @@ def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
         else:
             # Para regiões, criar um gráfico de barras com cores por região
             fig = px.bar(
-                df_medias,
+                df_regiao,
                 x=x_col,
-                y="Pct",
+                y="Taxa",
                 color=x_col,
                 title=f"Taxa de Alfabetização por {title_prefix} - {dados['ano']}",
-                labels={"Pct": "Taxa de Alfabetização", x_col: "Região"}
+                labels={"Taxa": "Taxa de Alfabetização", x_col: "Região"}
             )
             
             fig.update_layout(
@@ -454,8 +432,8 @@ def atualizar_grafico_comparativo(agrupamento, ano_selecionado):
         grupo = "Região"
     
     # Calcular médias para cada ano
-    medias_atual = df_atual.groupby(grupo)["Valor"].mean().reset_index()
-    medias_anterior = df_anterior.groupby(grupo)["Valor"].mean().reset_index()
+    medias_atual = df_atual.groupby(grupo)["Taxa"].mean().reset_index()
+    medias_anterior = df_anterior.groupby(grupo)["Taxa"].mean().reset_index()
     
     # Mesclar os dados
     medias_comparacao = medias_atual.merge(
@@ -466,8 +444,8 @@ def atualizar_grafico_comparativo(agrupamento, ano_selecionado):
     
     # Calcular variação percentual
     medias_comparacao['variacao'] = (
-        (medias_comparacao[f'Valor_{ano_selecionado}'] - medias_comparacao[f'Valor_{ano_anterior}']) / 
-        medias_comparacao[f'Valor_{ano_anterior}']
+        (medias_comparacao[f'Taxa_{ano_selecionado}'] - medias_comparacao[f'Taxa_{ano_anterior}']) / 
+        medias_comparacao[f'Taxa_{ano_anterior}']
     ) * 100
     
     # Ordenar por variação
@@ -479,7 +457,7 @@ def atualizar_grafico_comparativo(agrupamento, ano_selecionado):
     # Adicionar barras para cada ano
     fig.add_trace(go.Bar(
         x=medias_comparacao[grupo],
-        y=medias_comparacao[f'Valor_{ano_anterior}'],
+        y=medias_comparacao[f'Taxa_{ano_anterior}'],
         name=f'Ano {ano_anterior}',
         marker_color=COLORS['secondary'],
         opacity=0.7
@@ -487,7 +465,7 @@ def atualizar_grafico_comparativo(agrupamento, ano_selecionado):
     
     fig.add_trace(go.Bar(
         x=medias_comparacao[grupo],
-        y=medias_comparacao[f'Valor_{ano_selecionado}'],
+        y=medias_comparacao[f'Taxa_{ano_selecionado}'],
         name=f'Ano {ano_selecionado}',
         marker_color=COLORS['primary'],
         opacity=0.9
@@ -519,10 +497,11 @@ def atualizar_grafico_comparativo(agrupamento, ano_selecionado):
             x=1
         ),
         yaxis=dict(
-            title="Valor Absoluto",
+            title="Taxa de Alfabetização",
             side="left",
             showgrid=True,
-            gridcolor=COLORS['grid']
+            gridcolor=COLORS['grid'],
+            tickformat=".2%"
         ),
         yaxis2=dict(
             title="Variação (%)",
@@ -543,4 +522,4 @@ app.css.append_css({
 })
 
 if __name__ == '__main__':
-    app.run(debug=True)
+      app.run(debug=True)
