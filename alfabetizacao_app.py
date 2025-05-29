@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash.exceptions import PreventUpdate
 import numpy as np
+import json
 
 # Configurações de estilo
 COLORS = {
@@ -27,7 +28,7 @@ def carregar_dados():
     dados = [list(d.values()) for d in data[1:]]
     df = pd.DataFrame(dados, columns=colunas)
     df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce")
-    
+
     # Adicionar região para cada estado
     regioes = {
         'Rondônia': 'Norte', 'Acre': 'Norte', 'Amazonas': 'Norte', 'Roraima': 'Norte',
@@ -41,19 +42,27 @@ def carregar_dados():
         'Mato Grosso do Sul': 'Centro-Oeste', 'Mato Grosso': 'Centro-Oeste',
         'Goiás': 'Centro-Oeste', 'Distrito Federal': 'Centro-Oeste'
     }
-    
+
     df['Região'] = df['Unidade da Federação'].map(regioes)
-    
+
     # Converter valor para decimal (já que vem como percentual)
     df['Taxa'] = df['Valor'] / 100
-    
+
     return df
 
 df = carregar_dados()
 
+# # Carregar GeoJSON das regiões (Não mais necessário para scatter plot)
+# try:
+#     with open('geojson_data/BR_Regioes_2022.geojson') as f:
+#         geojson_regioes = json.load(f)
+# except FileNotFoundError:
+#     print("Erro: Arquivo GeoJSON das regiões não encontrado.")
+#     geojson_regioes = None
+
 # Inicialização do app com tema personalizado
 app = Dash(
-    __name__, 
+    __name__,
     meta_tags=[
         {"name": "viewport", "content": "width=device-width, initial-scale=1.0"}
     ]
@@ -64,12 +73,12 @@ app.title = "Dashboard sobre a taxa de alfabetização dos estados brasileiros"
 app.layout = html.Div([
     # Cabeçalho
     html.Div([
-        html.H1("Taxa de Alfabetização nos Estados Brasileiros", 
+        html.H1("Taxa de Alfabetização nos Estados e Regiões Brasileiras",
                 style={"textAlign": "center", "color": COLORS['text'], "marginBottom": "10px"}),
-        html.H4("Análise interativa dos dados de alfabetização por estado e região", 
+        html.H4("Análise interativa dos dados de alfabetização por estado e região",
                 style={"textAlign": "center", "color": COLORS['text'], "fontWeight": "normal", "marginTop": "0px"}),
     ], style={"padding": "20px 0", "backgroundColor": COLORS['background']}),
-    
+
     # Filtros e controles
     html.Div([
         html.Div([
@@ -82,7 +91,7 @@ app.layout = html.Div([
                 style={"width": "100%"}
             ),
         ], className="four columns", style={"padding": "10px"}),
-        
+
         html.Div([
             html.Label("Agrupar por:", style={"fontWeight": "bold", "color": COLORS['text']}),
             dcc.RadioItems(
@@ -96,14 +105,13 @@ app.layout = html.Div([
                 style={"padding": "10px 0"}
             ),
         ], className="four columns", style={"padding": "10px"}),
-        
+
         html.Div([
             html.Label("Tipo de Visualização:", style={"fontWeight": "bold", "color": COLORS['text']}),
             dcc.RadioItems(
                 id='tipo-grafico-radio',
                 options=[
                     {'label': 'Barras', 'value': 'barra'},
-                    {'label': 'Mapa de Calor', 'value': 'heatmap'},
                     {'label': 'Mapa Geográfico', 'value': 'mapa'}
                 ],
                 value='barra',
@@ -112,12 +120,12 @@ app.layout = html.Div([
             ),
         ], className="four columns", style={"padding": "10px"}),
     ], className="row", style={"backgroundColor": "#EAEAEA", "padding": "15px", "borderRadius": "5px", "margin": "20px"}),
-    
+
     # Indicadores principais
     html.Div([
         html.Div(id='indicadores-principais', className="row", style={"margin": "20px 0"}),
     ]),
-    
+
     # Gráfico principal
     html.Div([
         dcc.Loading(
@@ -126,26 +134,16 @@ app.layout = html.Div([
             children=html.Div(id='grafico-container', style={"height": "600px"})
         ),
     ], style={"padding": "20px", "backgroundColor": COLORS['background'], "borderRadius": "5px", "boxShadow": "0px 0px 10px rgba(0,0,0,0.1)"}),
-    
-    # Informações adicionais
-    html.Div([
-        html.H4("Comparação entre Anos", style={"textAlign": "center", "color": COLORS['text']}),
-        dcc.Loading(
-            id="loading-2",
-            type="circle",
-            children=html.Div(id='grafico-comparativo', style={"height": "400px"})
-        ),
-    ], style={"padding": "20px", "backgroundColor": COLORS['background'], "borderRadius": "5px", "boxShadow": "0px 0px 10px rgba(0,0,0,0.1)", "marginTop": "20px"}),
-    
+
     # Rodapé
     html.Div([
-        html.P("Dados obtidos da API SIDRA/IBGE - Dashboard criado com Dash e Plotly", 
+        html.P("Dados obtidos da API SIDRA/IBGE - Dashboard criado com Dash e Plotly",
                style={"textAlign": "center", "color": "#888888", "fontSize": "12px"})
     ], style={"padding": "20px", "marginTop": "30px"}),
-    
+
     # Armazenamento de dados processados
     dcc.Store(id='dados-processados'),
-    
+
 ], style={"fontFamily": "Arial, sans-serif", "margin": "0 auto", "maxWidth": "1200px", "padding": "20px"})
 
 # Callback para processar dados
@@ -156,12 +154,12 @@ app.layout = html.Div([
 def processar_dados(ano):
     if not ano:
         raise PreventUpdate
-    
+
     df_ano = df[df["Ano"] == ano].copy()
-    
+
     # Calcular médias por região
     df_regiao = df_ano.groupby("Região")["Taxa"].mean().reset_index()
-    
+
     # Preparar dados para retorno
     return {
         'df_uf': df_ano.to_dict('records'),
@@ -182,22 +180,22 @@ def processar_dados(ano):
 def atualizar_indicadores(dados):
     if not dados:
         raise PreventUpdate
-    
+
     # Criar cards de indicadores
     return [
         html.Div([
             html.H4("Média Nacional", style={"textAlign": "center", "margin": "0"}),
             html.H2(f"{dados['media_nacional']:.2%}", style={"textAlign": "center", "color": COLORS['primary'], "margin": "10px 0"})
         ], className="four columns", style={"backgroundColor": "white", "padding": "15px", "borderRadius": "5px", "boxShadow": "0px 0px 5px rgba(0,0,0,0.1)"}),
-        
+
         html.Div([
-            html.H4("Maior Taxa", style={"textAlign": "center", "margin": "0"}),
+            html.H4("Maior Taxa (UF)", style={"textAlign": "center", "margin": "0"}),
             html.H2(f"{dados['max_uf']:.2%}", style={"textAlign": "center", "color": COLORS['accent'], "margin": "10px 0"}),
             html.P(f"{dados['max_uf_nome']}", style={"textAlign": "center", "fontSize": "14px"})
         ], className="four columns", style={"backgroundColor": "white", "padding": "15px", "borderRadius": "5px", "boxShadow": "0px 0px 5px rgba(0,0,0,0.1)"}),
-        
+
         html.Div([
-            html.H4("Menor Taxa", style={"textAlign": "center", "margin": "0"}),
+            html.H4("Menor Taxa (UF)", style={"textAlign": "center", "margin": "0"}),
             html.H2(f"{dados['min_uf']:.2%}", style={"textAlign": "center", "color": COLORS['secondary'], "margin": "10px 0"}),
             html.P(f"{dados['min_uf_nome']}", style={"textAlign": "center", "fontSize": "14px"})
         ], className="four columns", style={"backgroundColor": "white", "padding": "15px", "borderRadius": "5px", "boxShadow": "0px 0px 5px rgba(0,0,0,0.1)"})
@@ -215,11 +213,11 @@ def atualizar_indicadores(dados):
 def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
     if not dados:
         raise PreventUpdate
-    
+
     # Converter dados de volta para DataFrame
     df_uf = pd.DataFrame(dados['df_uf'])
     df_regiao = pd.DataFrame(dados['df_regiao'])
-    
+
     # Escolher DataFrame baseado no agrupamento
     if agrupamento == 'estado':
         df_plot = df_uf
@@ -229,12 +227,12 @@ def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
         df_plot = df_regiao
         x_col = "Região"
         title_prefix = "Regiões"
-    
+
     # Escolher tipo de gráfico
     if tipo_grafico == 'barra':
         # Gráfico de barras ordenado
         df_plot = df_plot.sort_values("Taxa", ascending=False)
-        
+
         fig = px.bar(
             df_plot,
             x=x_col,
@@ -244,7 +242,7 @@ def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
             title=f"Taxa de Alfabetização por {title_prefix} - {dados['ano']}",
             labels={"Taxa": "Taxa de Alfabetização", x_col: title_prefix}
         )
-        
+
         # Melhorar aparência
         fig.update_layout(
             plot_bgcolor=COLORS['background'],
@@ -255,76 +253,17 @@ def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
             hoverlabel=dict(bgcolor="white", font_size=14),
             margin=dict(l=40, r=40, t=50, b=40),
         )
-        
+
         fig.update_traces(
             hovertemplate='%{x}<br>Taxa: %{y:.2%}<extra></extra>',
             marker_line_color='white',
             marker_line_width=1.5,
             opacity=0.8
         )
-        
-    elif tipo_grafico == 'heatmap':
-        # Preparar dados para heatmap
-        if agrupamento == 'estado':
-            # Reorganizar para ter UFs nas linhas e variáveis nas colunas
-            pivot_df = df_plot.pivot_table(
-                index=x_col, 
-                values="Taxa", 
-                aggfunc='mean'
-            ).reset_index()
-            
-            # Ordenar por valor
-            pivot_df = pivot_df.sort_values("Taxa", ascending=False)
-            
-            # Criar heatmap
-            fig = go.Figure(data=go.Heatmap(
-                z=pivot_df["Taxa"].values.reshape(-1, 1),
-                x=["Taxa de Alfabetização"],
-                y=pivot_df[x_col],
-                colorscale="Viridis",
-                text=[[f"{val:.2%}"] for val in pivot_df["Taxa"]],
-                texttemplate="%{text}",
-                showscale=True,
-                colorbar=dict(title="Taxa")
-            ))
-            
-        else:
-            # Para regiões, criar um heatmap mais simples
-            pivot_df = df_plot.pivot_table(
-                index=x_col, 
-                values="Taxa", 
-                aggfunc='mean'
-            ).reset_index()
-            
-            # Ordenar por valor
-            pivot_df = pivot_df.sort_values("Taxa", ascending=False)
-            
-            # Criar heatmap
-            fig = go.Figure(data=go.Heatmap(
-                z=pivot_df["Taxa"].values.reshape(-1, 1),
-                x=["Taxa de Alfabetização"],
-                y=pivot_df[x_col],
-                colorscale="Viridis",
-                text=[[f"{val:.2%}"] for val in pivot_df["Taxa"]],
-                texttemplate="%{text}",
-                showscale=True,
-                colorbar=dict(title="Taxa")
-            ))
-        
-        fig.update_layout(
-            title=f"Mapa de Calor da Taxa de Alfabetização por {title_prefix} - {dados['ano']}",
-            plot_bgcolor=COLORS['background'],
-            paper_bgcolor=COLORS['background'],
-            font={"color": COLORS['text']},
-            margin=dict(l=100, r=40, t=50, b=40),
-        )
-        
+
     elif tipo_grafico == 'mapa':
-        # Para mapa geográfico, precisamos de um gráfico choropleth
-        # Como não temos os dados geográficos completos, vamos criar um gráfico de dispersão com tamanho dos pontos
-        
         # Coordenadas aproximadas dos estados (centróides)
-        coordenadas = {
+        coordenadas_estados = {
             'Acre': [-9.0, -70.0], 'Alagoas': [-9.5, -36.5], 'Amapá': [1.0, -52.0],
             'Amazonas': [-3.5, -65.0], 'Bahia': [-12.5, -41.7], 'Ceará': [-5.0, -39.0],
             'Distrito Federal': [-15.8, -47.9], 'Espírito Santo': [-19.6, -40.5],
@@ -336,190 +275,66 @@ def atualizar_grafico_principal(dados, agrupamento, tipo_grafico):
             'Rondônia': [-10.5, -63.0], 'Roraima': [2.0, -61.5], 'Santa Catarina': [-27.0, -50.5],
             'São Paulo': [-22.0, -48.0], 'Sergipe': [-10.5, -37.5], 'Tocantins': [-10.0, -48.0]
         }
-        
-        # Adicionar coordenadas ao DataFrame
+
+        # Coordenadas aproximadas das regiões (centróides)
+        coordenadas_regioes = {
+            'Norte': [-5.0, -55.0],
+            'Nordeste': [-9.0, -40.0],
+            'Centro-Oeste': [-15.0, -55.0],
+            'Sudeste': [-20.0, -45.0],
+            'Sul': [-27.0, -52.0]
+        }
+
         if agrupamento == 'estado':
             df_map = df_plot.copy()
-            df_map['lat'] = df_map[x_col].map(lambda x: coordenadas.get(x, [0, 0])[0])
-            df_map['lon'] = df_map[x_col].map(lambda x: coordenadas.get(x, [0, 0])[1])
-            
-            # Criar mapa
-            fig = px.scatter_geo(
-                df_map,
-                lat='lat',
-                lon='lon',
-                size='Taxa',
-                color='Taxa',
-                hover_name=x_col,
-                size_max=30,
-                color_continuous_scale="Viridis",
-                title=f"Distribuição Geográfica da Taxa de Alfabetização - {dados['ano']}",
-                projection="mercator",
-                scope="south america",
-                labels={"Taxa": "Taxa de Alfabetização"}
-            )
-            
-            # Adicionar texto aos pontos
-            fig.update_traces(
-                text=df_map[x_col],
-                hovertemplate='<b>%{hovertext}</b><br>Taxa: %{marker.color:.2%}<extra></extra>'
-            )
-            
-        else:
-            # Para regiões, criar um gráfico de barras com cores por região
-            fig = px.bar(
-                df_regiao,
-                x=x_col,
-                y="Taxa",
-                color=x_col,
-                title=f"Taxa de Alfabetização por {title_prefix} - {dados['ano']}",
-                labels={"Taxa": "Taxa de Alfabetização", x_col: "Região"}
-            )
-            
-            fig.update_layout(
-                showlegend=False,
-                yaxis_tickformat=".2%",
-            )
-            
-            fig.update_traces(
-                hovertemplate='%{x}<br>Taxa: %{y:.2%}<extra></extra>',
-                marker_line_color='white',
-                marker_line_width=1.5,
-                opacity=0.8
-            )
-        
+            coordenadas = coordenadas_estados
+            hover_text_col = x_col # Unidade da Federação
+            title_detail = "Estado"
+            size_max_val = 30
+        else: # Agrupamento por Região
+            df_map = df_plot.copy()
+            coordenadas = coordenadas_regioes
+            hover_text_col = x_col # Região
+            title_detail = "Região"
+            size_max_val = 50 # Pontos maiores para regiões
+
+        # Adicionar coordenadas ao DataFrame
+        df_map['lat'] = df_map[x_col].map(lambda x: coordenadas.get(x, [0, 0])[0])
+        df_map['lon'] = df_map[x_col].map(lambda x: coordenadas.get(x, [0, 0])[1])
+
+        # Criar mapa de dispersão
+        fig = px.scatter_geo(
+            df_map,
+            lat='lat',
+            lon='lon',
+            size='Taxa', # Tamanho do ponto proporcional à taxa
+            color='Taxa', # Cor do ponto proporcional à taxa
+            hover_name=hover_text_col,
+            size_max=size_max_val,
+            color_continuous_scale="Viridis",
+            title=f"Distribuição Geográfica da Taxa de Alfabetização por {title_detail} - {dados['ano']}",
+            projection="mercator",
+            scope="south america",
+            labels={"Taxa": "Taxa de Alfabetização"}
+        )
+
+        # Ajustar zoom e centro do mapa
+        fig.update_geos(center=dict(lon=-55, lat=-10), projection_scale=1.8) # Ajuste para melhor visualização do Brasil
+
+        fig.update_traces(
+            text=df_map[hover_text_col],
+            hovertemplate='<b>%{hovertext}</b><br>Taxa: %{marker.color:.2%}<extra></extra>'
+        )
         fig.update_layout(
             plot_bgcolor=COLORS['background'],
             paper_bgcolor=COLORS['background'],
             font={"color": COLORS['text']},
             margin=dict(l=40, r=40, t=50, b=40),
+            hoverlabel=dict(bgcolor="white", font_size=14),
         )
-    
-    return dcc.Graph(figure=fig, style={"height": "100%"})
 
-# Callback para o gráfico comparativo
-@app.callback(
-    Output('grafico-comparativo', 'children'),
-    [
-        Input('agrupamento-radio', 'value'),
-        Input('ano-dropdown', 'value')
-    ]
-)
-def atualizar_grafico_comparativo(agrupamento, ano_selecionado):
-    # Obter todos os anos disponíveis
-    anos = sorted(df["Ano"].unique())
-    
-    # Garantir que temos pelo menos 2 anos para comparar
-    if len(anos) < 2:
-        return html.Div("Dados insuficientes para comparação entre anos")
-    
-    # Selecionar o ano atual e o anterior para comparação
-    if ano_selecionado in anos and anos.index(ano_selecionado) > 0:
-        ano_anterior = anos[anos.index(ano_selecionado) - 1]
-    else:
-        # Se não for possível, usar os dois últimos anos
-        ano_anterior = anos[-2]
-        ano_selecionado = anos[-1]
-    
-    # Filtrar dados para os dois anos
-    df_atual = df[df["Ano"] == ano_selecionado]
-    df_anterior = df[df["Ano"] == ano_anterior]
-    
-    # Agrupar por UF ou região conforme selecionado
-    if agrupamento == 'estado':
-        grupo = "Unidade da Federação"
-    else:
-        grupo = "Região"
-    
-    # Calcular médias para cada ano
-    medias_atual = df_atual.groupby(grupo)["Taxa"].mean().reset_index()
-    medias_anterior = df_anterior.groupby(grupo)["Taxa"].mean().reset_index()
-    
-    # Mesclar os dados
-    medias_comparacao = medias_atual.merge(
-        medias_anterior, 
-        on=grupo, 
-        suffixes=(f'_{ano_selecionado}', f'_{ano_anterior}')
-    )
-    
-    # Calcular variação percentual
-    medias_comparacao['variacao'] = (
-        (medias_comparacao[f'Taxa_{ano_selecionado}'] - medias_comparacao[f'Taxa_{ano_anterior}']) / 
-        medias_comparacao[f'Taxa_{ano_anterior}']
-    ) * 100
-    
-    # Ordenar por variação
-    medias_comparacao = medias_comparacao.sort_values('variacao', ascending=False)
-    
-    # Criar gráfico de barras para comparação
-    fig = go.Figure()
-    
-    # Adicionar barras para cada ano
-    fig.add_trace(go.Bar(
-        x=medias_comparacao[grupo],
-        y=medias_comparacao[f'Taxa_{ano_anterior}'],
-        name=f'Ano {ano_anterior}',
-        marker_color=COLORS['secondary'],
-        opacity=0.7
-    ))
-    
-    fig.add_trace(go.Bar(
-        x=medias_comparacao[grupo],
-        y=medias_comparacao[f'Taxa_{ano_selecionado}'],
-        name=f'Ano {ano_selecionado}',
-        marker_color=COLORS['primary'],
-        opacity=0.9
-    ))
-    
-    # Adicionar linha de variação percentual
-    fig.add_trace(go.Scatter(
-        x=medias_comparacao[grupo],
-        y=medias_comparacao['variacao'],
-        mode='lines+markers',
-        name='Variação (%)',
-        yaxis='y2',
-        line=dict(color=COLORS['accent'], width=3),
-        marker=dict(size=8)
-    ))
-    
-    # Configurar layout com eixo Y secundário
-    fig.update_layout(
-        title=f"Comparação entre {ano_anterior} e {ano_selecionado}",
-        barmode='group',
-        plot_bgcolor=COLORS['background'],
-        paper_bgcolor=COLORS['background'],
-        font={"color": COLORS['text']},
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ),
-        yaxis=dict(
-            title="Taxa de Alfabetização",
-            side="left",
-            showgrid=True,
-            gridcolor=COLORS['grid'],
-            tickformat=".2%"
-        ),
-        yaxis2=dict(
-            title="Variação (%)",
-            side="right",
-            overlaying="y",
-            showgrid=False,
-            zeroline=False
-        ),
-        margin=dict(l=40, r=40, t=50, b=40),
-        hovermode="x unified"
-    )
-    
     return dcc.Graph(figure=fig, style={"height": "100%"})
-
-# Adicionar CSS externo para responsividade
-app.css.append_css({
-    "external_url": "https://codepen.io/chriddyp/pen/bWLwgP.css"
-})
 
 if __name__ == '__main__':
-      app.run(debug=True)
+    app.run(debug=True)
+
